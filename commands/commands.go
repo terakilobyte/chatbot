@@ -144,14 +144,6 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 		"uptime": func(_ []string, _ twitch.User) string {
 			return fmt.Sprintf("Chatbot up for %v", time.Now().Sub(startTime))
 		},
-		"ident": func(_ []string, user twitch.User) string {
-			for badge := range user.Badges {
-				if isAllowedPoll(badge) {
-					return fmt.Sprintf("You are a %s, %s", badge, user.DisplayName)
-				}
-			}
-			return "You don't appear to have badges we care about " + user.DisplayName
-		},
 		"poll": func(args []string, user twitch.User) string {
 			if pollInProgress {
 				return "There is currently a poll in progress, type !options to see the options"
@@ -180,7 +172,10 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 					case msg := <-p.cmdChan:
 						switch msg {
 						case "complete":
-							client.Say(channel, fmt.Sprintf("Poll complete! The results were %v", p.tally))
+							client.Say(channel, "Poll complete! Results are:")
+							for k, v := range p.tally {
+								client.Say(channel, fmt.Sprintf("%s got %d votes", k, v))
+							}
 							pollInProgress = false
 							break V
 						}
@@ -189,7 +184,11 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 					}
 				}
 			}(currentPoll)
-			return fmt.Sprintf("A poll was created with options %v", currentPoll)
+			client.Say(channel, "A poll was created! !vote")
+			for k, v := range currentPoll.options {
+				client.Say(channel, fmt.Sprintf("For %s, !vote %d", v, k))
+			}
+			return ""
 		},
 		"vote": func(args []string, user twitch.User) string {
 			go func() {
@@ -199,7 +198,10 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 		},
 		"options": func(_ []string, _ twitch.User) string {
 			if pollInProgress {
-				return fmt.Sprintf("%v", currentPoll.options)
+				for k, v := range currentPoll.options {
+					client.Say(channel, fmt.Sprintf("For %s, !vote %d", v, k))
+				}
+				return ""
 			}
 			return "No poll in progress"
 		},
