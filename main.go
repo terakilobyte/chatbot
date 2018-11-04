@@ -17,9 +17,17 @@ func main() {
 	twitchOauth := os.Getenv("TWITCH_OAUTH")
 	twitchChannel := os.Getenv("TWITCH_ACCOUNT")
 	client := twitch.NewClient(twitchChannel, twitchOauth)
-	commandHandler := commands.NewCommand(client)
+	commandHandler := commands.NewCommand(client, twitchChannel)
+
+	client.OnNewUnsetMessage(func(foobar string) {
+		fmt.Println("Got an unset message")
+		fmt.Println(foobar)
+	})
 
 	client.OnNewMessage(func(channel string, user twitch.User, message twitch.Message) {
+		if user.Username == "swarmlogic_bot" {
+			fmt.Println(message.Text)
+		}
 		if message.Text[:1] == "!" {
 			commandHandler.HandleCommand(message.Text[1:], channel, user, message)
 		}
