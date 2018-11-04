@@ -16,10 +16,18 @@ type Command struct {
 	channel string
 }
 
+type votePackage struct {
+	vote []string
+	user string
+}
+
 type poll struct {
-	duration time.Duration
-	tally    map[string]int
-	options  map[int]string
+	cmdChan    chan string
+	voteChan   chan votePackage
+	duration   time.Duration
+	usersVoted map[string]string
+	tally      map[string]int
+	options    map[int]string
 }
 
 func newPoll(args []string) (*poll, error) {
@@ -30,11 +38,36 @@ func newPoll(args []string) (*poll, error) {
 	providedOptions := args[1:]
 	tally := make(map[string]int)
 	options := make(map[int]string)
+	usersVoted := make(map[string]string)
+	cmdChan := make(chan string)
+	voteChan := make(chan votePackage)
 	for i := range providedOptions {
 		tally[providedOptions[i]] = 0
 		options[i] = providedOptions[i]
 	}
-	return &poll{duration, tally, options}, nil
+	return &poll{cmdChan, voteChan, duration, usersVoted, tally, options}, nil
+}
+
+func (p *poll) countVote(vp votePackage, c *twitch.Client) {
+
+	if _, ok := p.usersVoted[vp.user]; ok {
+		c.Whisper(vp.user, "You've already voted for "+vp.vote[0])
+		return
+	}
+	userVote, err := strconv.Atoi(vp.vote[0])
+	if err != nil {
+		return
+	}
+	if userVote > len(currentPoll.options)-1 {
+		return
+	}
+	option := p.options[userVote]
+	if _, ok := p.tally[option]; !ok {
+		return
+	}
+	p.tally[option]++
+	p.usersVoted[vp.user] = vp.vote[0]
+
 }
 
 type fn func(args []string, user twitch.User) string
@@ -135,26 +168,33 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 			}
 			pollInProgress = true
 			go func(p *poll) {
-				t := time.NewTimer(p.duration)
-				<-t.C
-				client.Say(channel, fmt.Sprintf("Poll complete! The results were %v", p.tally))
-				pollInProgress = false
+				go func() {
+					t := time.NewTimer(p.duration)
+					<-t.C
+					p.cmdChan <- "complete"
+				}()
+
+			V:
+				for {
+					select {
+					case msg := <-p.cmdChan:
+						switch msg {
+						case "complete":
+							client.Say(channel, fmt.Sprintf("Poll complete! The results were %v", p.tally))
+							pollInProgress = false
+							break V
+						}
+					case msg := <-p.voteChan:
+						p.countVote(msg, client)
+					}
+				}
 			}(currentPoll)
 			return fmt.Sprintf("A poll was created with options %v", currentPoll)
 		},
-		"vote": func(args []string, _ twitch.User) string {
-			userVote, err := strconv.Atoi(args[0])
-			if err != nil {
-				return ""
-			}
-			if userVote > len(currentPoll.options)-1 {
-				return ""
-			}
-			option := currentPoll.options[userVote]
-			if _, ok := currentPoll.tally[option]; !ok {
-				return ""
-			}
-			currentPoll.tally[option]++
+		"vote": func(args []string, user twitch.User) string {
+			go func() {
+				currentPoll.voteChan <- votePackage{args, user.Username}
+			}()
 			return ""
 		},
 		"options": func(_ []string, _ twitch.User) string {
