@@ -49,7 +49,6 @@ func newPoll(args []string) (*poll, error) {
 }
 
 func (p *poll) countVote(vp votePackage, c *twitch.Client) {
-
 	if _, ok := p.usersVoted[vp.user]; ok {
 		c.Whisper(vp.user, "You've already voted for "+vp.vote[0])
 		return
@@ -191,9 +190,11 @@ func NewCommand(client *twitch.Client, channel string) *Command {
 			return ""
 		},
 		"vote": func(args []string, user twitch.User) string {
-			go func() {
-				currentPoll.voteChan <- votePackage{args, user.Username}
-			}()
+			if pollInProgress {
+				go func() {
+					currentPoll.voteChan <- votePackage{args, user.Username}
+				}()
+			}
 			return ""
 		},
 		"options": func(_ []string, _ twitch.User) string {
